@@ -9,9 +9,22 @@ A web-based tool to convert NACHA ACH TXT files and Wire TXT files to CSV format
 - **Email Matching**: Automatically matches beneficiary names with email addresses from Notification.csv
 - **Modern UI**: Clean, responsive interface built with Tailwind CSS
 
+## Live Demo (GitHub Pages)
+
+If this repository is hosted on GitHub Pages, you can access it directly online:
+```
+https://YOUR_USERNAME.github.io/REPO_NAME/
+```
+
+See `GITHUB_PAGES_SETUP.md` for setup instructions.
+
 ## How to Use
 
-### Option 1: Using a Web Server (Recommended)
+### Option 1: GitHub Pages (Easiest - No Setup Required)
+
+If hosted on GitHub Pages, simply visit the URL and start using it!
+
+### Option 2: Using a Web Server (Recommended for Local Use)
 
 1. **Start a local web server** in the project directory:
    ```bash
