@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACH File Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen py-8 px-4">
+    <div class="max-w-4xl mx-auto">
+        <div class="bg-white rounded-lg shadow-xl p-8 fade-in">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">ACH & Wire File Converter</h1>
+            <p class="text-gray-600 mb-6">Convert NACHA ACH TXT files or Wire TXT files to CSV format for bank import</p>
+            
+            <div class="space-y-6">
+                <!-- Notification CSV Upload Section (for Wire files) -->
+                <div class="border-2 border-dashed border-purple-300 rounded-lg p-6 text-center hover:border-purple-400 transition-colors bg-purple-50">
+                    <input type="file" id="notificationInput" accept=".csv" class="hidden">
+                    <label for="notificationInput" class="cursor-pointer">
+                        <svg class="mx-auto h-10 w-10 text-purple-400 mb-3" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        <p class="text-sm font-medium text-purple-700 mb-1">(Optional) Upload Notification.csv</p>
+                        <p class="text-xs text-purple-600" id="notificationFileName">For email addresses in Wire files</p>
+                    </label>
+                </div>
+
+                <!-- File Upload Section -->
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors">
+                    <input type="file" id="fileInput" accept=".txt" class="hidden">
+                    <label for="fileInput" class="cursor-pointer">
+                        <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        <p class="text-lg font-medium text-gray-700 mb-2">Click to upload ACH or Wire TXT file</p>
+                        <p class="text-sm text-gray-500" id="fileName">No file selected</p>
+                    </label>
+                </div>
+
+                <!-- Convert Button -->
+                <button id="convertBtn" 
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg transform hover:scale-[1.02] transition-transform"
+                        disabled>
+                    Convert to CSV
+                </button>
+
+                <!-- Status Message -->
+                <div id="statusMessage" class="hidden p-4 rounded-lg"></div>
+
+                <!-- Download Button -->
+                <button id="downloadBtn" 
+                        class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors hidden shadow-md hover:shadow-lg transform hover:scale-[1.02] transition-transform">
+                    Download CSV File
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let csvData = null;
+        let csvFileName = '';
+        let notificationCSVContent = null;
+
+        // Notification CSV file input handler
+        document.getElementById('notificationInput').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                try {
+                    notificationCSVContent = await file.text();
+                    document.getElementById('notificationFileName').textContent = `Loaded: ${file.name}`;
+                    console.log('Notification.csv loaded from file input');
+                } catch (error) {
+                    console.error('Error reading Notification.csv:', error);
+                    document.getElementById('notificationFileName').textContent = 'Error loading file';
+                }
+            }
+        });
+
+        // File input handler
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('fileName').textContent = file.name;
+                document.getElementById('convertBtn').disabled = false;
+                document.getElementById('statusMessage').classList.add('hidden');
+                document.getElementById('downloadBtn').classList.add('hidden');
+            }
+        });
+
+        // Convert button handler
+        document.getElementById('convertBtn').addEventListener('click', async function() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showStatus('Please select a file first.', 'error');
+                return;
+            }
+
+            try {
+                const text = await file.text();
+                const fileName = file.name.toUpperCase();
+                
+                // Detect file type based on filename
+                let fileType = '';
+                if (fileName.startsWith('ACH_')) {
+                    fileType = 'ACH';
+                    csvData = convertACHToCSV(text);
+                    csvFileName = file.name.replace('.txt', '.csv');
+                    const rowCount = csvData.split('\n').length - 1; // Subtract 1 for header row
+                    showStatus(`Successfully converted ACH file! Found ${rowCount} recipient(s).`, 'success');
+                } else if (fileName.startsWith('WIRE_')) {
+                    fileType = 'WIRE';
+                    csvData = await convertWireToCSV(text);
+                    csvFileName = file.name.replace('.txt', '.csv');
+                    const rowCount = csvData.split('\n').length - 1; // Subtract 1 for header row
+                    showStatus(`Successfully converted Wire file! Found ${rowCount} payment(s).`, 'success');
+                } else {
+                    throw new Error('File name must start with ACH_ or WIRE_');
+                }
+                
+                document.getElementById('downloadBtn').classList.remove('hidden');
+            } catch (error) {
+                showStatus('Error converting file: ' + error.message, 'error');
+                console.error(error);
+            }
+        });
+
+        // Download button handler
+        document.getElementById('downloadBtn').addEventListener('click', function() {
+            if (!csvData) return;
+            
+            const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', csvFileName);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        // Show status message
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.textContent = message;
+            statusDiv.className = `p-4 rounded-lg ${type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
+            statusDiv.classList.remove('hidden');
+        }
+
+        // Escape CSV field - wraps in quotes if needed and escapes internal quotes
+        function escapeCSVField(field, forceText = false) {
+            if (field === null || field === undefined) {
+                return '';
+            }
+            
+            const str = String(field);
+            
+            // If field is empty, return empty string
+            if (str === '') {
+                return '';
+            }
+            
+            // If forceText is true (for numeric fields that need leading zeros), always wrap in quotes
+            // Also wrap if field contains comma, quote, or newline
+            if (forceText || str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+                // Escape internal quotes by doubling them
+                const escaped = str.replace(/"/g, '""');
+                
+                // For forceText fields (like routing numbers, account numbers), add a tab character
+                // at the beginning to force Excel to treat it as text and preserve leading zeros
+                if (forceText) {
+                    return `"\t${escaped}"`;
+                }
+                
+                return `"${escaped}"`;
+            }
+            
+            return str;
+        }
+
+        // Convert ACH TXT to CSV
+        function convertACHToCSV(achText) {
+            const lines = achText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+            
+            if (lines.length < 3) {
+                throw new Error('File must have at least 3 lines');
+            }
+
+            // Extract date from batch header (line 2, positions 63-68: YYMMDD)
+            const batchHeader = lines[1];
+            if (batchHeader.length < 68) {
+                throw new Error('Invalid batch header format');
+            }
+            
+            // Find the date pattern in the batch header
+            // The date appears after "REG SAL" and before the settlement date
+            // Format: YYMMDD (6 digits) followed by another 6-digit date (settlement date)
+            // Look for pattern of two consecutive 6-digit numbers
+            let dateStr = '';
+            
+            // Search for the date pattern - two consecutive 6-digit numbers
+            // The first one is the effective entry date (YYMMDD)
+            const dateMatch = batchHeader.match(/(\d{6})(\d{6})/);
+            if (dateMatch) {
+                // Take the first 6-digit group (effective entry date)
+                dateStr = dateMatch[1];
+            } else {
+                // Fallback: Try exact position (63-68, which is 0-indexed 62-68)
+                if (batchHeader.length >= 68) {
+                    dateStr = batchHeader.substring(62, 68);
+                    // Validate it's 6 digits
+                    if (!/^\d{6}$/.test(dateStr)) {
+                        throw new Error('Could not find valid date in batch header');
+                    }
+                } else {
+                    throw new Error('Batch header too short to extract date');
+                }
+            }
+            
+            // Parse YYMMDD format
+            const year = '20' + dateStr.substring(0, 2);
+            const month = dateStr.substring(2, 4);
+            const day = dateStr.substring(4, 6);
+            const formattedDate = `${month}/${day}/${year}`;
+
+            // CSV header row (data starts from row 2)
+            const csvHeader = `New Batch Indicator,ACH Company ID ,ACH Company Name,ACH Payment Type ,Payment Description ,Company Discretionary Data ,Payment Date,Originating Company,Originator Address 1,Originator City ,Originator State ,Originator ZIP Code ,Originator Country ,Recipient Name,Recipient Bank ID ,Recipient Account Number ,Recipient Account Type ,Recipient ID ,Vendor Billing Number,Recipient Address 1,Recipient Address 2,Recipient City ,Recipient State  ,Recipient ZIP Code ,Recipient Country,Recipient Status ,Recipient Transaction Type,Send or Receive,Recipient Amount ,Add Secondary Account,Secondary Bank ID,Secondary Account Number,Secondary Account Type,Payment Allocation Type,Allocation Amount/ Percent,Discretionary Data,Addenda,Trace Number,Include routing and account number in the BPR segment,BPR Originating Company Identifier,Remittance`;
+
+            // Process entry detail records (starting from line 3, lines starting with "6")
+            const csvRows = [];
+            let recipientCount = 0;
+            
+            for (let i = 2; i < lines.length; i++) {
+                const line = lines[i];
+                
+                // Check if it's an entry detail record (starts with "6")
+                if (line.length > 0 && line[0] === '6') {
+                    // Parse entry detail record
+                    // Position 1: Record Type Code (6)
+                    // Position 2-3: Transaction Code
+                    // Position 4-11: Receiving DFI Identification (8 digits)
+                    // Position 12: Check Digit
+                    // Position 13-29: DFI Account Number (17 chars, right-justified)
+                    // Position 30-39: Amount (10 digits, in cents)
+                    // Position 40-54: Individual Identification Number
+                    // Position 55-76: Individual Name (22 chars)
+                    // Position 77-78: Discretionary Data
+                    // Position 79: Addenda Record Indicator
+                    // Position 80-94: Trace Number
+                    
+                    if (line.length < 94) {
+                        continue; // Skip invalid lines
+                    }
+
+                    // Extract fields
+                    const routingNumber = line.substring(3, 12); // positions 4-12 (9 digits including check digit)
+                    const accountNumber = line.substring(12, 29).trim(); // positions 13-29, trim spaces
+                    const amountCents = parseInt(line.substring(29, 39)); // positions 30-39
+                    const amount = (amountCents / 100).toFixed(2);
+                    const recipientName = line.substring(54, 76).trim(); // positions 55-76
+                    const traceNumber = line.substring(79, 94).trim(); // positions 80-94
+                    const discretionaryData = line.substring(76, 78); // positions 77-78
+
+                    // Build CSV row with proper escaping
+                    // For recipient rows: A=R, B/C/D/G are cleared (empty)
+                    // Column mapping:
+                    // A: R (always)
+                    // B: Empty (cleared)
+                    // C: Empty (cleared)
+                    // D: Empty (cleared)
+                    // E: ACH (always)
+                    // G: Empty (cleared)
+                    // N: recipientName - escape properly for long names
+                    // O: routingNumber - format as text to preserve leading zeros
+                    // P: accountNumber - format as text to preserve leading zeros
+                    // Q: Checking (always)
+                    // Z: Active (always)
+                    // AB: Send (always)
+                    // AC: amount
+                    // AL: traceNumber - format as text to preserve leading zeros
+                    
+                    const csvRow = [
+                        escapeCSVField('R'),                                    // A: New Batch Indicator
+                        escapeCSVField(''),                                    // B: ACH Company ID (cleared)
+                        escapeCSVField(''),                                    // C: ACH Company Name (cleared)
+                        escapeCSVField(''),                                    // D: ACH Payment Type (cleared)
+                        escapeCSVField(''),                                    // E: Payment Description (cleared)
+                        escapeCSVField(''),                                    // F: Company Discretionary Data
+                        escapeCSVField(''),                                    // G: Payment Date (cleared)
+                        escapeCSVField(''),                                    // H: Originating Company
+                        escapeCSVField(''),                                    // I: Originator Address 1
+                        escapeCSVField(''),                                    // J: Originator City
+                        escapeCSVField(''),                                    // K: Originator State
+                        escapeCSVField(''),                                    // L: Originator ZIP Code
+                        escapeCSVField(''),                                    // M: Originator Country
+                        escapeCSVField(recipientName),                         // N: Recipient Name (properly escaped)
+                        escapeCSVField(routingNumber, true),                   // O: Recipient Bank ID (text format to preserve leading zeros)
+                        escapeCSVField(accountNumber, true),                   // P: Recipient Account Number (text format to preserve leading zeros)
+                        escapeCSVField('Checking'),                            // Q: Recipient Account Type
+                        escapeCSVField(''),                                    // R: Recipient ID
+                        escapeCSVField(''),                                    // S: Vendor Billing Number
+                        escapeCSVField(''),                                    // T: Recipient Address 1
+                        escapeCSVField(''),                                    // U: Recipient Address 2
+                        escapeCSVField(''),                                    // V: Recipient City
+                        escapeCSVField(''),                                    // W: Recipient State
+                        escapeCSVField(''),                                    // X: Recipient ZIP Code
+                        escapeCSVField(''),                                    // Y: Recipient Country
+                        escapeCSVField('Active'),                              // Z: Recipient Status
+                        escapeCSVField(''),                                    // AA: Recipient Transaction Type
+                        escapeCSVField('Send'),                                // AB: Send or Receive
+                        escapeCSVField(amount),                                // AC: Recipient Amount
+                        escapeCSVField('No'),                                  // AD: Add Secondary Account
+                        escapeCSVField(''),                                    // AE: Secondary Bank ID
+                        escapeCSVField(''),                                    // AF: Secondary Account Number
+                        escapeCSVField(''),                                    // AG: Secondary Account Type
+                        escapeCSVField(''),                                    // AH: Payment Allocation Type
+                        escapeCSVField(''),                                    // AI: Allocation Amount/Percent
+                        escapeCSVField(discretionaryData),                      // AJ: Discretionary Data
+                        escapeCSVField(''),                                    // AK: Addenda
+                        escapeCSVField(traceNumber, true),                     // AL: Trace Number (text format to preserve leading zeros)
+                        escapeCSVField(''),                                    // AM: Include routing and account number in BPR
+                        escapeCSVField(''),                                    // AN: BPR Originating Company Identifier
+                        escapeCSVField('')                                     // AO: Remittance
+                    ];
+
+                    csvRows.push(csvRow.join(','));
+                    recipientCount++;
+                }
+            }
+
+            if (csvRows.length === 0) {
+                throw new Error('No valid entry detail records found in file');
+            }
+
+            // Create batch row (B) as row 2
+            const batchRow = [
+                escapeCSVField('B'),                                    // A: New Batch Indicator
+                escapeCSVField('1466324632'),                           // B: ACH Company ID (no tab needed, no leading zeros)
+                escapeCSVField('TRU FUNDING LLC'),                     // C: ACH Company Name
+                escapeCSVField('CCD'),                                 // D: ACH Payment Type
+                escapeCSVField(`${recipientCount} rec`),               // E: Payment Description (count)
+                escapeCSVField(''),                                    // F: Company Discretionary Data
+                escapeCSVField(formattedDate),                         // G: Payment Date
+                escapeCSVField(''),                                    // H: Originating Company
+                escapeCSVField(''),                                    // I: Originator Address 1
+                escapeCSVField(''),                                    // J: Originator City
+                escapeCSVField(''),                                    // K: Originator State
+                escapeCSVField(''),                                    // L: Originator ZIP Code
+                escapeCSVField(''),                                    // M: Originator Country
+                escapeCSVField(''),                                    // N: Recipient Name
+                escapeCSVField(''),                                    // O: Recipient Bank ID
+                escapeCSVField(''),                                    // P: Recipient Account Number
+                escapeCSVField(''),                                    // Q: Recipient Account Type
+                escapeCSVField(''),                                    // R: Recipient ID
+                escapeCSVField(''),                                    // S: Vendor Billing Number
+                escapeCSVField(''),                                    // T: Recipient Address 1
+                escapeCSVField(''),                                    // U: Recipient Address 2
+                escapeCSVField(''),                                    // V: Recipient City
+                escapeCSVField(''),                                    // W: Recipient State
+                escapeCSVField(''),                                    // X: Recipient ZIP Code
+                escapeCSVField(''),                                    // Y: Recipient Country
+                escapeCSVField(''),                                    // Z: Recipient Status
+                escapeCSVField(''),                                    // AA: Recipient Transaction Type
+                escapeCSVField(''),                                    // AB: Send or Receive
+                escapeCSVField(''),                                    // AC: Recipient Amount
+                escapeCSVField(''),                                    // AD: Add Secondary Account
+                escapeCSVField(''),                                    // AE: Secondary Bank ID
+                escapeCSVField(''),                                    // AF: Secondary Account Number
+                escapeCSVField(''),                                    // AG: Secondary Account Type
+                escapeCSVField(''),                                    // AH: Payment Allocation Type
+                escapeCSVField(''),                                    // AI: Allocation Amount/Percent
+                escapeCSVField(''),                                    // AJ: Discretionary Data
+                escapeCSVField(''),                                    // AK: Addenda
+                escapeCSVField(''),                                    // AL: Trace Number
+                escapeCSVField(''),                                    // AM: Include routing and account number in BPR
+                escapeCSVField(''),                                    // AN: BPR Originating Company Identifier
+                escapeCSVField('')                                     // AO: Remittance
+            ];
+
+            // Return: header + batch row + recipient rows
+            return csvHeader + '\n' + batchRow.join(',') + '\n' + csvRows.join('\n');
+        }
+
+        // Format number with commas
+        function formatNumberWithCommas(num) {
+            const parts = num.toString().split('.');
+            parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            return parts.join('.');
+        }
+
+        // Simple CSV parser that handles quoted fields
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                
+                if (char === '"') {
+                    if (inQuotes && line[i + 1] === '"') {
+                        // Escaped quote
+                        current += '"';
+                        i++; // Skip next quote
+                    } else {
+                        // Toggle quote state
+                        inQuotes = !inQuotes;
+                    }
+                } else if (char === ',' && !inQuotes) {
+                    // End of field
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            
+            // Add last field
+            result.push(current.trim());
+            return result;
+        }
+
+        // Load and parse Notification.csv
+        async function loadNotificationCSV() {
+            // First, try to use the uploaded file content if available
+            if (notificationCSVContent) {
+                console.log('Using Notification.csv from file input');
+                const text = notificationCSVContent;
+                return parseNotificationCSV(text);
+            }
+            
+            // Otherwise, try to fetch it
+            try {
+                console.log('Attempting to load Notification.csv from server...');
+                const response = await fetch('Notification.csv');
+                console.log('Fetch response status:', response.status, response.statusText);
+                console.log('Fetch response ok:', response.ok);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to load Notification.csv: ${response.status} ${response.statusText}`);
+                }
+                
+                const text = await response.text();
+                console.log('Notification.csv loaded from server, text length:', text.length);
+                return parseNotificationCSV(text);
+            } catch (error) {
+                console.error('❌ ERROR loading Notification.csv:', error);
+                console.error('Error name:', error.name);
+                console.error('Error message:', error.message);
+                
+                // If it's a CORS or network error, provide helpful message
+                if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+                    console.error('⚠️ This might be a CORS issue. You can upload Notification.csv using the file input above, or run a local web server.');
+                }
+                
+                // Return empty map but with a default email as fallback
+                return { 
+                    notificationMap: new Map(), 
+                    defaultEmails: ['p.kositc@trufunding.net'] // Fallback default email
+                };
+            }
+        }
+
+        // Parse Notification.csv content
+        function parseNotificationCSV(text) {
+            try {
+                console.log('Notification.csv content (first 500 chars):', text.substring(0, 500));
+                
+                const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+                console.log('Notification.csv lines after split:', lines.length);
+                console.log('Notification.csv lines:', lines);
+                
+                if (lines.length < 2) {
+                    throw new Error(`Notification.csv must have at least 2 lines (header + default), but found ${lines.length} lines`);
+                }
+
+                // Parse data rows
+                const notificationMap = new Map();
+                let defaultEmails = [];
+                
+                for (let i = 1; i < lines.length; i++) {
+                    const row = parseCSVLine(lines[i]);
+                    const beneficiaryName = (row[0] || '').trim(); // Column A
+                    
+                    console.log(`Parsing Notification.csv row ${i}: beneficiaryName = "${beneficiaryName}"`);
+                    
+                    // Extract emails from columns B, C, D, E, F (indices 1-5)
+                    const emails = [];
+                    for (let j = 1; j <= 5 && j < row.length; j++) {
+                        const email = (row[j] || '').trim();
+                        if (email !== '') {
+                            emails.push(email);
+                        }
+                    }
+                    
+                    console.log(`Row ${i} emails:`, emails);
+                    
+                    if (beneficiaryName.toUpperCase() === 'DEFAULT') {
+                        // Store default emails (row 2, which is index 1)
+                        defaultEmails = emails;
+                        console.log('Loaded default emails:', defaultEmails);
+                    } else if (beneficiaryName !== '') {
+                        // Store emails for this beneficiary (case-insensitive key, trimmed and normalized)
+                        // Normalize: uppercase, trim, and remove any special characters that might cause issues
+                        const normalizedKey = beneficiaryName.toUpperCase().trim().replace(/\s+/g, ' ');
+                        notificationMap.set(normalizedKey, emails);
+                        console.log(`Loaded emails for "${beneficiaryName}" (key: "${normalizedKey}"):`, emails);
+                        console.log(`Map now has ${notificationMap.size} entries`);
+                    }
+                }
+                
+                console.log('Loaded notification map with', notificationMap.size, 'entries');
+                console.log('Default emails:', defaultEmails);
+                
+                return { notificationMap, defaultEmails };
+            } catch (error) {
+                console.error('❌ ERROR parsing Notification.csv:', error);
+                console.error('Error name:', error.name);
+                console.error('Error message:', error.message);
+                
+                // Return empty map but with a default email as fallback
+                return { 
+                    notificationMap: new Map(), 
+                    defaultEmails: ['p.kositc@trufunding.net'] // Fallback default email
+                };
+            }
+        }
+
+        // Get emails for a beneficiary name
+        function getBeneficiaryEmails(beneficiaryName, notificationMap, defaultEmails) {
+            // Normalize the name: trim whitespace, convert to uppercase, and normalize spaces
+            const normalizedName = beneficiaryName ? beneficiaryName.trim().toUpperCase().replace(/\s+/g, ' ') : '';
+            
+            console.log(`Looking up emails for: "${beneficiaryName}" (normalized: "${normalizedName}")`);
+            console.log(`Notification map has ${notificationMap.size} entries`);
+            console.log(`Map keys:`, Array.from(notificationMap.keys()));
+            
+            // Try to find exact match first
+            let emails = notificationMap.get(normalizedName);
+            
+            if (emails !== undefined && emails !== null && emails.length > 0) {
+                console.log(`✓ Found exact match for "${beneficiaryName}":`, emails);
+            } else {
+                console.log(`✗ No exact match found for "${normalizedName}"`);
+                console.log(`  Checking if key exists in map...`);
+                
+                // Debug: Check if the key exists with different variations
+                const allKeys = Array.from(notificationMap.keys());
+                console.log(`  All keys in map:`, allKeys);
+                console.log(`  Looking for: "${normalizedName}"`);
+                
+                // Try direct lookup first
+                if (notificationMap.has(normalizedName)) {
+                    emails = notificationMap.get(normalizedName);
+                    console.log(`  Key exists! Emails:`, emails);
+                }
+                
+                // If still no match, try to find match by removing all spaces
+                if (!emails || emails.length === 0) {
+                    const nameNoSpaces = normalizedName.replace(/\s+/g, '');
+                    console.log(`  Trying space-normalized match (no spaces: "${nameNoSpaces}")...`);
+                    for (const [key, value] of notificationMap.entries()) {
+                        const keyNoSpaces = key.replace(/\s+/g, '');
+                        if (nameNoSpaces === keyNoSpaces && value && value.length > 0) {
+                            emails = value;
+                            console.log(`✓ Found space-normalized match: "${key}" for "${beneficiaryName}":`, emails);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // If still no match, use default emails
+            if (!emails || emails.length === 0) {
+                emails = defaultEmails && defaultEmails.length > 0 ? defaultEmails : ['p.kositc@trufunding.net'];
+                console.log(`Using default emails for: "${beneficiaryName}":`, emails);
+            } else {
+                console.log(`Found emails for "${beneficiaryName}":`, emails);
+            }
+            
+            // Ensure we have at least one email (use fallback if needed)
+            if (!emails || emails.length === 0) {
+                emails = ['p.kositc@trufunding.net'];
+                console.log(`Using fallback email for: "${beneficiaryName}"`);
+            }
+            
+            // Return array of 5 emails (pad with empty strings if needed)
+            const result = [...emails];
+            while (result.length < 5) {
+                result.push('');
+            }
+            console.log(`Final email array for "${beneficiaryName}":`, result);
+            return result.slice(0, 5); // Ensure exactly 5 emails
+        }
+
+        // Convert Wire TXT to CSV
+        async function convertWireToCSV(wireText) {
+            console.log('=== Wire Conversion Debug ===');
+            console.log('Original text length:', wireText.length);
+            console.log('Original text (first 500 chars):', wireText.substring(0, 500));
+            
+            // Load Notification.csv
+            const { notificationMap, defaultEmails } = await loadNotificationCSV();
+            console.log('Notification map loaded:', notificationMap);
+            console.log('Notification map size:', notificationMap.size);
+            console.log('Default emails:', defaultEmails);
+            console.log('Default emails count:', defaultEmails.length);
+            
+            // Log all entries in the map for debugging
+            for (const [key, value] of notificationMap.entries()) {
+                console.log(`Notification map entry: "${key}" =>`, value);
+            }
+            
+            // Check for error messages in the file
+            const upperText = wireText.toUpperCase();
+            if (upperText.includes('PROBLEM GENERATING') || 
+                upperText.includes('NO DATA') || 
+                upperText.includes('ERROR') ||
+                upperText.includes('THERE IS NO DATA')) {
+                console.error('Error message detected in file');
+                throw new Error('The Wire file contains an error message instead of data. Please check the source file - it appears there is no data available for export.');
+            }
+            
+            const lines = wireText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+            console.log('Total lines after split and filter:', lines.length);
+            console.log('Lines:', lines);
+            
+            if (lines.length === 0) {
+                console.error('No lines found after filtering');
+                throw new Error('File is empty');
+            }
+
+            // CSV header row (data starts from row 2)
+            const csvHeader = `Payment Type,Value Date,Template Name,Amount,Transaction Currency,Credit Currency,Wire Fee Assignment,Instruction Code,Purpose or Intent,Debit Account,Debit Bank Name,Debit Bank ID,Debit Bank Address Line 1,Debit Bank Address Line 2,Debit Bank City,Debit Bank State/Province/Region,Debit Bank Postal Code,Debit Bank Country Code,Beneficiary Name,Beneficiary Account Number or IBAN,Beneficiary Address Line 1,Beneficiary Address Line 2,Beneficiary City,Beneficiary State/Province/Region,Beneficiary Postal Code,Beneficiary Country Code,Beneficiary Bank ID,Beneficiary Bank Name,Beneficiary Bank Address Line 1,Beneficiary Bank Address Line 2,Beneficiary Bank City,Beneficiary Bank State/Province/Region,Beneficiary Bank Postal Code,Beneficiary Bank Country Code,IRC,Beneficiary Notification Email Address 1,Beneficiary Notification Email Address 2,Beneficiary Notification Email Address 3,Beneficiary Notification Email Address 4,Beneficiary Notification Email Address 5,OBI Line 1,OBI Line 2,OBI Line 3,OBI Line 4,Originator Name,Originator Address Line 1,Originator Address Line 2,Originator City,Originator State/Province/Region,Originator Postal Code,Originator Country Code,ID or Acct #,Third-party Reference,Intermediary Bank ID,Intermediary Bank Name,Intermediary Bank Address Line 1,Intermediary Bank Address Line 2,Intermediary Bank City,Intermediary Bank State/Province/Region,Intermediary Bank Postal Code,Intermediary Bank Country Code,Intermediary Bank Account Number for Beneficiary Bank,Customer Reference,Payment Description,FX Contract #`;
+
+            // Process wire records (each line is a payment)
+            const csvRows = [];
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                console.log(`\nProcessing line ${i + 1}:`, line);
+                
+                // Skip empty lines
+                if (!line || line.trim() === '') {
+                    console.log(`Line ${i + 1} is empty, skipping`);
+                    continue;
+                }
+
+                // Parse comma-separated values using CSV parser to handle quoted fields
+                const fields = parseCSVLine(line);
+                console.log(`Line ${i + 1} - Fields count:`, fields.length);
+                console.log(`Line ${i + 1} - Fields:`, fields);
+                
+                if (fields.length < 10) {
+                    console.log(`Line ${i + 1} has only ${fields.length} fields, expected at least 10. Skipping.`);
+                    continue; // Skip invalid lines
+                }
+
+                // Extract fields from Wire TXT
+                // Field 0: Debit Account (985339910)
+                // Field 1: Currency (USD)
+                // Field 2: Debit Bank ID (124000054)
+                // Field 3: Date MMDDYY (112525)
+                // Field 4: Amount (75969.07)
+                // Field 5: Purpose or Intent (A) - to be removed/empty
+                // Field 6: Beneficiary Account Number (291019533856) - used as Client Account Number
+                // Field 7: Beneficiary Name (TESLA TRANSPORTATION GROUP LLC) - used as Client Name
+                // Field 8: Instruction Code (FW) - to be removed/empty
+                // Field 9: Beneficiary Bank ID (026009593) - used as Client Routing Number
+                
+                const debitAccount = fields[0] ? fields[0].trim() : '';
+                const currency = fields[1] ? fields[1].trim() : '';
+                const debitBankID = fields[2] ? fields[2].trim() : '';
+                const dateStr = fields[3] ? fields[3].trim() : '';
+                const amount = fields[4] ? parseFloat(fields[4].trim()) : 0;
+                const beneficiaryAccountNumber = fields[6] ? fields[6].trim() : '';
+                const beneficiaryName = fields[7] ? fields[7].trim() : '';
+                const beneficiaryBankID = fields[9] ? fields[9].trim() : '';
+                
+                // Extract client-specific information from the file (individual for each client/row)
+                // Client Name comes from Beneficiary Name (field 7)
+                // Client Account Number comes from Beneficiary Account Number (field 6)
+                // Client Routing Number comes from Beneficiary Bank ID (field 9)
+                const clientName = beneficiaryName; // Field 7: Client Name from file
+                const clientAccountNumber = beneficiaryAccountNumber; // Field 6: Client Account Number from file (individual per row)
+                const clientRoutingNumber = beneficiaryBankID; // Field 9: Client Routing Number from file (individual per row)
+
+                console.log(`Line ${i + 1} - Parsed values:`, {
+                    debitAccount,
+                    currency,
+                    debitBankID,
+                    dateStr,
+                    amount,
+                    beneficiaryAccountNumber,
+                    beneficiaryName,
+                    beneficiaryBankID,
+                    clientName,
+                    clientAccountNumber,
+                    clientRoutingNumber
+                });
+
+                // Convert date from MMDDYY to YYYYMMDD format
+                // Input format: MMDDYY where MM=month, DD=day, YY=year (25 = 2025)
+                if (dateStr.length !== 6 || !/^\d{6}$/.test(dateStr)) {
+                    console.error(`Line ${i + 1} - Invalid date format:`, dateStr);
+                    throw new Error(`Invalid date format in line ${i + 1}: ${dateStr}`);
+                }
+                
+                // Parse as MMDDYY format
+                const month = dateStr.substring(0, 2);  // First 2 digits = month
+                const day = dateStr.substring(2, 4);     // Middle 2 digits = day
+                const yy = parseInt(dateStr.substring(4, 6)); // Last 2 digits = year
+                
+                // Convert YY to YYYY (assume 2000-2099 range)
+                const year = (yy < 50) ? '20' + String(yy).padStart(2, '0') : '19' + String(yy).padStart(2, '0');
+                
+                // Format as YYYYMMDD
+                const formattedDate = `${year}${month}${day}`;
+                console.log(`Line ${i + 1} - Date parsing:`, {
+                    original: dateStr,
+                    month, day, yy,
+                    year,
+                    formatted: formattedDate
+                });
+
+                // Format amount with commas
+                const formattedAmount = formatNumberWithCommas(amount.toFixed(2));
+                console.log(`Line ${i + 1} - Formatted amount:`, formattedAmount);
+
+                // Get emails for beneficiary from Notification.csv
+                const beneficiaryEmails = getBeneficiaryEmails(beneficiaryName, notificationMap, defaultEmails);
+                console.log(`Line ${i + 1} - Emails for "${beneficiaryName}":`, beneficiaryEmails);
+                console.log(`Line ${i + 1} - Email count:`, beneficiaryEmails.length);
+                console.log(`Line ${i + 1} - First email:`, beneficiaryEmails[0]);
+
+                // Build CSV row according to requirements:
+                // A - WIRE
+                // B - Date in YYYYMMDD format
+                // D - Amount
+                // E - USD
+                // F - USD
+                // G - BEN
+                // H - Empty (removed Instruction Code)
+                // I - Empty (removed Purpose or Intent)
+                // J - 4941701393
+                // S - Client Name (from file, individual for each client)
+                // T - Client Account Number (from file, individual for each client)
+                // AA - Client Routing Number (from file, individual for each client)
+                // AJ, AK, AL, AM, AN - Emails from Notification.csv (matched by beneficiary name)
+                const csvRow = [
+                    escapeCSVField('WIRE'),                                     // A: Payment Type (WIRE, not #WIRE)
+                    escapeCSVField(formattedDate),                              // B: Value Date (YYYYMMDD format)
+                    escapeCSVField(''),                                         // C: Template Name
+                    escapeCSVField(formattedAmount),                            // D: Amount (with commas)
+                    escapeCSVField('USD'),                                      // E: Transaction Currency (USD)
+                    escapeCSVField('USD'),                                      // F: Credit Currency (USD)
+                    escapeCSVField('BEN'),                                      // G: Wire Fee Assignment (BEN)
+                    escapeCSVField(''),                                         // H: Instruction Code (removed/empty)
+                    escapeCSVField(''),                                         // I: Purpose or Intent (removed/empty)
+                    escapeCSVField('4941701393', true),                        // J: Debit Account (4941701393)
+                    escapeCSVField(''),                                         // K: Debit Bank Name
+                    escapeCSVField(debitBankID, true),                          // L: Debit Bank ID (text format to preserve leading zeros)
+                    escapeCSVField(''),                                         // M: Debit Bank Address Line 1
+                    escapeCSVField(''),                                         // N: Debit Bank Address Line 2
+                    escapeCSVField(''),                                         // O: Debit Bank City
+                    escapeCSVField(''),                                         // P: Debit Bank State/Province/Region
+                    escapeCSVField(''),                                         // Q: Debit Bank Postal Code
+                    escapeCSVField(''),                                         // R: Debit Bank Country Code
+                    escapeCSVField(clientName),                                 // S: Beneficiary Name column - Client Name (from file)
+                    escapeCSVField(clientAccountNumber, true),                  // T: Beneficiary Account Number column - Client Account Number (from file, individual)
+                    escapeCSVField(''),                                         // U: Beneficiary Address Line 1
+                    escapeCSVField(''),                                         // V: Beneficiary Address Line 2
+                    escapeCSVField(''),                                         // W: Beneficiary City
+                    escapeCSVField(''),                                         // X: Beneficiary State/Province/Region
+                    escapeCSVField(''),                                         // Y: Beneficiary Postal Code
+                    escapeCSVField(''),                                         // Z: Beneficiary Country Code
+                    escapeCSVField(clientRoutingNumber, true),                   // AA: Beneficiary Bank ID column - Client Routing Number (from file, individual)
+                    escapeCSVField(''),                                         // AB: Beneficiary Bank Name
+                    escapeCSVField(''),                                         // AC: Beneficiary Bank Address Line 1
+                    escapeCSVField(''),                                         // AD: Beneficiary Bank Address Line 2
+                    escapeCSVField(''),                                         // AE: Beneficiary Bank City
+                    escapeCSVField(''),                                         // AF: Beneficiary Bank State/Province/Region
+                    escapeCSVField(''),                                         // AG: Beneficiary Bank Postal Code
+                    escapeCSVField(''),                                         // AH: Beneficiary Bank Country Code
+                    escapeCSVField(''),                                         // AI: IRC
+                    escapeCSVField(beneficiaryEmails[0] || ''),                 // AJ: Beneficiary Notification Email Address 1
+                    escapeCSVField(beneficiaryEmails[1] || ''),                 // AK: Beneficiary Notification Email Address 2
+                    escapeCSVField(beneficiaryEmails[2] || ''),                 // AL: Beneficiary Notification Email Address 3
+                    escapeCSVField(beneficiaryEmails[3] || ''),                 // AM: Beneficiary Notification Email Address 4
+                    escapeCSVField(beneficiaryEmails[4] || ''),                 // AN: Beneficiary Notification Email Address 5
+                    escapeCSVField(''),                                         // AO: OBI Line 1
+                    escapeCSVField(''),                                         // AP: OBI Line 2
+                    escapeCSVField(''),                                         // AQ: OBI Line 3
+                    escapeCSVField(''),                                         // AR: OBI Line 4
+                    escapeCSVField(''),                                         // AS: Originator Name
+                    escapeCSVField(''),                                         // AT: Originator Address Line 1
+                    escapeCSVField(''),                                         // AU: Originator Address Line 2
+                    escapeCSVField(''),                                         // AV: Originator City
+                    escapeCSVField(''),                                         // AW: Originator State/Province/Region
+                    escapeCSVField(''),                                         // AX: Originator Postal Code
+                    escapeCSVField(''),                                         // AY: Originator Country Code
+                    escapeCSVField(''),                                         // AZ: ID or Acct #
+                    escapeCSVField(''),                                         // BA: Third-party Reference
+                    escapeCSVField(''),                                         // BB: Intermediary Bank ID
+                    escapeCSVField(''),                                         // BC: Intermediary Bank Name
+                    escapeCSVField(''),                                         // BD: Intermediary Bank Address Line 1
+                    escapeCSVField(''),                                         // BE: Intermediary Bank Address Line 2
+                    escapeCSVField(''),                                         // BF: Intermediary Bank City
+                    escapeCSVField(''),                                         // BG: Intermediary Bank State/Province/Region
+                    escapeCSVField(''),                                         // BH: Intermediary Bank Postal Code
+                    escapeCSVField(''),                                         // BI: Intermediary Bank Country Code
+                    escapeCSVField(''),                                         // BJ: Intermediary Bank Account Number for Beneficiary Bank
+                    escapeCSVField(''),                                         // BK: Customer Reference
+                    escapeCSVField(''),                                         // BL: Payment Description
+                    escapeCSVField('')                                          // BM: FX Contract #
+                ];
+
+                csvRows.push(csvRow.join(','));
+                console.log(`Line ${i + 1} - Successfully added to CSV rows. Total rows:`, csvRows.length);
+            }
+
+            console.log('\n=== Conversion Summary ===');
+            console.log('Total CSV rows created:', csvRows.length);
+            console.log('CSV rows:', csvRows);
+
+            if (csvRows.length === 0) {
+                console.error('No valid wire records found after processing all lines');
+                throw new Error('No valid wire records found in file');
+            }
+
+            return csvHeader + '\n' + csvRows.join('\n');
+        }
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,23 @@
+# Sample/test files - don't commit these
+*.txt
+!README.txt
+
+# Temporary CSV files
+Temp*.csv
+*Temp*.csv
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
