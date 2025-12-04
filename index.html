@@ -16,8 +16,10 @@
     </style>
 </head>
 <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen py-8 px-4">
-    <div class="max-w-4xl mx-auto">
-        <div class="bg-white rounded-lg shadow-xl p-8 fade-in">
+    <div class="max-w-7xl mx-auto relative">
+        <!-- Main Content (Centered) -->
+        <div class="max-w-4xl mx-auto">
+            <div class="bg-white rounded-lg shadow-xl p-8 fade-in">
             <h1 class="text-3xl font-bold text-gray-800 mb-2">ACH & Wire File Converter</h1>
             <p class="text-gray-600 mb-6">Convert NACHA ACH TXT files or Wire TXT files to CSV format for bank import</p>
             
@@ -76,6 +78,17 @@
                 </button>
             </div>
         </div>
+        </div>
+
+        <!-- Client Info Sidebar (Fixed Right) -->
+        <div class="absolute top-0 -right-16 w-64">
+            <div class="bg-white rounded-lg shadow-xl p-4 fade-in sticky top-4">
+                <h2 class="text-lg font-bold text-gray-800 mb-3">Client Information</h2>
+                <div id="clientInfoList" class="space-y-1.5 max-h-[calc(100vh-200px)] overflow-y-auto">
+                    <p class="text-gray-500 text-xs text-center py-4">No data available. Convert a file to see client information.</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -91,6 +104,10 @@
                 document.getElementById('statusMessage').classList.add('hidden');
                 document.getElementById('downloadBtn').classList.add('hidden');
                 document.getElementById('wireSummary').classList.add('hidden');
+                
+                // Clear client info when new file is selected
+                const clientInfoListEl = document.getElementById('clientInfoList');
+                clientInfoListEl.innerHTML = '<p class="text-gray-500 text-sm text-center py-8">No data available. Convert a Wire file to see client information.</p>';
             }
         });
 
@@ -112,9 +129,14 @@
                 let fileType = '';
                 if (fileName.startsWith('ACH_')) {
                     fileType = 'ACH';
-                    csvData = convertACHToCSV(text);
+                    const achResult = convertACHToCSV(text);
+                    csvData = achResult.csv;
                     csvFileName = file.name.replace('.txt', '.csv');
-                    const rowCount = csvData.split('\n').length - 1; // Subtract 1 for header row
+                    const rowCount = achResult.csv.split('\n').length - 1; // Subtract 1 for header row
+                    
+                    // Display client information in sidebar
+                    displayClientInfo(achResult.clientInfo);
+                    
                     showStatus(`Successfully converted ACH file! Found ${rowCount} recipient(s).`, 'success');
                 } else if (fileName.startsWith('WIRE_')) {
                     fileType = 'WIRE';
@@ -124,6 +146,9 @@
                     
                     // Display summary for wire payments
                     displayWireSummary(wireResult.summary);
+                    
+                    // Display client information in sidebar
+                    displayClientInfo(wireResult.clientInfo);
                     
                     showStatus(`Successfully converted Wire file! Found ${wireResult.summary.recipientCount} payment(s).`, 'success');
                 } else {
@@ -159,6 +184,37 @@
             statusDiv.textContent = message;
             statusDiv.className = `p-4 rounded-lg ${type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
             statusDiv.classList.remove('hidden');
+        }
+
+        // Display client information in sidebar
+        function displayClientInfo(clientInfoList) {
+            const clientInfoListEl = document.getElementById('clientInfoList');
+            
+            if (!clientInfoList || clientInfoList.length === 0) {
+                clientInfoListEl.innerHTML = '<p class="text-gray-500 text-xs text-center py-4">No client information available.</p>';
+                return;
+            }
+            
+            // Clear existing content
+            clientInfoListEl.innerHTML = '';
+            
+            // Create client info items (single line format: Client - Amount)
+            clientInfoList.forEach((client, index) => {
+                const clientItem = document.createElement('div');
+                clientItem.className = 'text-xs text-gray-700 py-1.5 px-2 bg-gray-50 rounded hover:bg-gray-100 transition-colors';
+                
+                const formattedAmount = formatNumberWithCommas(client.amount.toFixed(2));
+                const clientName = client.clientName || 'N/A';
+                
+                clientItem.innerHTML = `
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="font-medium text-gray-800 truncate flex-1" title="${clientName}">${clientName}</span>
+                        <span class="text-blue-600 font-semibold whitespace-nowrap">$${formattedAmount}</span>
+                    </div>
+                `;
+                
+                clientInfoListEl.appendChild(clientItem);
+            });
         }
 
         // Display wire payment summary
@@ -337,6 +393,7 @@
 
             // Process entry detail records (starting from line 3, lines starting with "6")
             const csvRows = [];
+            const clientInfoList = []; // Store client info for display
             let recipientCount = 0;
             
             for (let i = 2; i < lines.length; i++) {
@@ -365,10 +422,16 @@
                     const routingNumber = line.substring(3, 12); // positions 4-12 (9 digits including check digit)
                     const accountNumber = line.substring(12, 29).trim(); // positions 13-29, trim spaces
                     const amountCents = parseInt(line.substring(29, 39)); // positions 30-39
-                    const amount = (amountCents / 100).toFixed(2);
+                    const amount = parseFloat((amountCents / 100).toFixed(2));
                     const recipientName = line.substring(54, 76).trim(); // positions 55-76
                     const traceNumber = line.substring(79, 94).trim(); // positions 80-94
                     const discretionaryData = line.substring(76, 78); // positions 77-78
+
+                    // Store client info for display
+                    clientInfoList.push({
+                        clientName: recipientName,
+                        amount: amount
+                    });
 
                     // Build CSV row with proper escaping
                     // For recipient rows: A=R, B/C/D/G are cleared (empty)
@@ -486,8 +549,13 @@
                 escapeCSVField('')                                     // AO: Remittance
             ];
 
-            // Return: header + batch row + recipient rows
-            return csvHeader + '\n' + batchRow.join(',') + '\n' + csvRows.join('\n');
+            const csvContent = csvHeader + '\n' + batchRow.join(',') + '\n' + csvRows.join('\n');
+            
+            // Return both CSV content and client info
+            return {
+                csv: csvContent,
+                clientInfo: clientInfoList
+            };
         }
 
         // Format number with commas
@@ -737,6 +805,7 @@
 
             // Process wire records (each line is a payment)
             const csvRows = [];
+            const clientInfoList = []; // Store client info for display
             let totalAmount = 0;
             let recipientCount = 0;
             
@@ -834,6 +903,12 @@
                 // Track totals for summary
                 totalAmount += amount;
                 recipientCount++;
+                
+                // Store client info for display
+                clientInfoList.push({
+                    clientName: clientName,
+                    amount: amount
+                });
 
                 // Get emails for beneficiary from Notification.csv
                 const beneficiaryEmails = getBeneficiaryEmails(beneficiaryName, notificationMap, defaultEmails);
@@ -938,13 +1013,14 @@
 
             const csvContent = csvHeader + '\n' + csvRows.join('\n');
             
-            // Return both CSV content and summary
+            // Return both CSV content, summary, and client info
             return {
                 csv: csvContent,
                 summary: {
                     recipientCount: recipientCount,
                     totalAmount: totalAmount
-                }
+                },
+                clientInfo: clientInfoList
             };
         }
     </script>
