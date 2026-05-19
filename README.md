@@ -75,17 +75,6 @@ If hosted on GitHub Pages, simply visit the URL and start using it!
   - Field 8: Instruction Code
   - Field 9: Beneficiary Bank ID
 
-### Notification.csv Format
-
-For Wire files, you can provide a `Notification.csv` file to match beneficiary names with email addresses:
-
-```csv
-Beneficiary Name,Beneficiary Notification Email Address 1,Beneficiary Notification Email Address 2,Beneficiary Notification Email Address 3,Beneficiary Notification Email Address 4,Beneficiary Notification Email Address 5
-Default,p.kositc@trufunding.net,,,,
-GBA GROUP LLC,accounting@gbaholding.net,,,,
-RUSH TRANSLOGISTICS INC,accounting@rushtranslogistics.com,maria@rushtranslogistics.com,,,
-```
-
 - **Column A**: Beneficiary Name (case-insensitive matching)
 - **Columns B-F**: Email addresses (up to 5 emails per beneficiary)
 - **Default row**: Used when no match is found (beneficiary name must be "Default")
